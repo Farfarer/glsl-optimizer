@@ -211,6 +211,69 @@ static void print_texlod_workarounds(int usage_bitfield, int usage_proj_bitfield
 	}
 }
 
+void do_print_glsl_uniform_blocks(exec_list* instructions, 
+								  global_print_tracker& gtracker, 
+								  loop_state* ls, 
+								  string_buffer& body,
+								  struct _mesa_glsl_parse_state *state,
+								  PrintGlslMode mode) {
+
+	struct uniform_block : public exec_node {
+		uniform_block(const glsl_type* type_) : type(type_) {
+		}
+		const glsl_type* type;
+	};
+
+	exec_list uniform_blocks;
+	uniform_blocks.make_empty();
+
+	auto mem_ctx = ralloc_context(NULL);
+
+	foreach_in_list(ir_instruction, ir, instructions) {
+		if (ir->ir_type == ir_type_variable) {
+			ir_variable* var = static_cast<ir_variable*>(ir);
+			if (var->is_in_uniform_block()) {
+				uniform_block* block = nullptr;
+				foreach_in_list(uniform_block, entry, &uniform_blocks) {
+					if (entry->type == var->get_interface_type()) {
+						block = entry;
+						break;
+					}
+				}
+				if (!block) {
+					block = new(mem_ctx) uniform_block(var->get_interface_type());
+					uniform_blocks.push_tail(block);
+				}
+			}
+		}
+	}
+
+	static const char* layout_packing[] = { "std140", "shared", "packed" };
+
+	foreach_in_list(uniform_block, block, &uniform_blocks) {
+		body.asprintf_append("layout(%s) uniform %s {\n", layout_packing[block->type->interface_packing], block->type->name);
+		
+		foreach_in_list(ir_instruction, ir, instructions) {
+			if (ir->ir_type == ir_type_variable) {
+				ir_variable* var = static_cast<ir_variable*>(ir);
+				if (var->get_interface_type() == block->type) {
+					body.asprintf_append("    ");
+					ir_print_glsl_visitor v(body, &gtracker, mode, state->es_shader, state);
+					v.loopstate = ls;
+
+					ir->accept(&v);
+					if (ir->ir_type != ir_type_function && !v.skipped_this_ir)
+						body.asprintf_append(";\n");
+				}
+			}
+		}
+
+		body.asprintf_append("};\n");
+	}
+
+	ralloc_free(mem_ctx);
+}
+
 
 char*
 _mesa_print_ir_glsl(exec_list *instructions,
@@ -269,6 +332,10 @@ _mesa_print_ir_glsl(exec_list *instructions,
 	if (ls->loop_found)
 		set_loop_controls(instructions, ls);
 
+	if (state->language_version >= 150) {
+		do_print_glsl_uniform_blocks(instructions, gtracker, ls, body, state, mode);
+	}
+
 	foreach_in_list(ir_instruction, ir, instructions)
 	{
 		if (ir->ir_type == ir_type_variable) {
@@ -276,6 +343,9 @@ _mesa_print_ir_glsl(exec_list *instructions,
 			if ((strstr(var->name, "gl_") == var->name)
 			  && !var->data.invariant)
 				continue;
+			if ((state->language_version >= 150) && var->is_in_uniform_block()) {
+				continue;
+			}
 		}
 
 		ir_print_glsl_visitor v (body, &gtracker, mode, state->es_shader, state);
@@ -493,7 +563,7 @@ void ir_print_glsl_visitor::visit(ir_variable *ir)
 	}
 	
 	buffer.asprintf_append ("%s%s%s%s",
-							cent, inv, interp[ir->data.interpolation], mode[decormode][ir->data.mode]);
+							cent, inv, interp[ir->data.interpolation], mode[decormode][((this->state->language_version >= 150) &&  ir->is_in_uniform_block()) ? 0 : ir->data.mode]);
 	print_precision (ir, ir->type);
 	print_type(buffer, ir->type, false);
 	buffer.asprintf_append (" ");
