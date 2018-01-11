@@ -291,9 +291,6 @@ _mesa_print_ir_glsl(exec_list *instructions,
 			if (state->es_shader && state->language_version >= 300)
 				str.asprintf_append (" es");
 			str.asprintf_append ("\n");
-			if (state->language_version >= 150) {
-				str.asprintf_append("layout(row_major) uniform;\n");
-			}
 		}
 		if (state->ARB_shader_texture_lod_enable)
 			str.asprintf_append ("#extension GL_ARB_shader_texture_lod : enable\n");
