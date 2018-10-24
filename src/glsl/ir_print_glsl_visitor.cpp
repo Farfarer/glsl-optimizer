@@ -251,7 +251,12 @@ void do_print_glsl_uniform_blocks(exec_list* instructions,
 	static const char* layout_packing[] = { "std140", "shared", "packed" };
 
 	foreach_in_list(uniform_block, block, &uniform_blocks) {
-		body.asprintf_append("layout(%s) uniform %s {\n", layout_packing[block->type->interface_packing], block->type->name);
+		
+		if (block->type->interface_binding) {
+			body.asprintf_append("layout(%s, binding = %d) uniform %s {\n", layout_packing[block->type->interface_packing], block->type->interface_binding-1, block->type->name);
+		} else {
+			body.asprintf_append("layout(%s) uniform %s {\n", layout_packing[block->type->interface_packing], block->type->name);
+		}
 		
 		foreach_in_list(ir_instruction, ir, instructions) {
 			if (ir->ir_type == ir_type_variable) {
@@ -296,6 +301,8 @@ _mesa_print_ir_glsl(exec_list *instructions,
 			str.asprintf_append ("#extension GL_ARB_shader_texture_lod : enable\n");
 		if (state->ARB_draw_instanced_enable)
 			str.asprintf_append ("#extension GL_ARB_draw_instanced : enable\n");
+		if (state->ARB_shading_language_420pack_enable)
+			str.asprintf_append ("#extension GL_ARB_shading_language_420pack : enable\n");
 		if (state->EXT_gpu_shader4_enable)
 			str.asprintf_append ("#extension GL_EXT_gpu_shader4 : enable\n");
 		if (state->EXT_shader_texture_lod_enable)

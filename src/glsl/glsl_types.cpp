@@ -115,11 +115,11 @@ glsl_type::glsl_type(const glsl_struct_field *fields, unsigned num_fields,
 }
 
 glsl_type::glsl_type(const glsl_struct_field *fields, unsigned num_fields,
-		     enum glsl_interface_packing packing, const char *name) :
+		     enum glsl_interface_packing packing, unsigned binding, const char *name) :
    gl_type(0),
    base_type(GLSL_TYPE_INTERFACE),
    sampler_dimensionality(0), sampler_shadow(0), sampler_array(0),
-   sampler_type(0), interface_packing((unsigned) packing),
+   sampler_type(0), interface_packing((unsigned) packing), interface_binding(binding),
    vector_elements(0), matrix_columns(0),
    length(num_fields)
 {
@@ -498,6 +498,9 @@ glsl_type::record_compare(const glsl_type *b) const
    if (this->interface_packing != b->interface_packing)
       return false;
 
+   if (this->interface_binding != b->interface_binding)
+	   return false;
+
    /* From the GLSL 4.20 specification (Sec 4.2):
     *
     *     "Structures must have the same name, sequence of type names, and
@@ -609,9 +612,10 @@ const glsl_type *
 glsl_type::get_interface_instance(const glsl_struct_field *fields,
 				  unsigned num_fields,
 				  enum glsl_interface_packing packing,
+				  unsigned binding,
 				  const char *block_name)
 {
-   const glsl_type key(fields, num_fields, packing, block_name);
+   const glsl_type key(fields, num_fields, packing, binding, block_name);
 
    if (interface_types == NULL) {
       interface_types = hash_table_ctor(64, record_key_hash, record_key_compare);
@@ -619,7 +623,7 @@ glsl_type::get_interface_instance(const glsl_struct_field *fields,
 
    const glsl_type *t = (glsl_type *) hash_table_find(interface_types, & key);
    if (t == NULL) {
-      t = new glsl_type(fields, num_fields, packing, block_name);
+      t = new glsl_type(fields, num_fields, packing, binding, block_name);
 
       hash_table_insert(interface_types, (void *) t, t);
    }

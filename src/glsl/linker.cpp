@@ -1274,7 +1274,7 @@ private:
          (glsl_interface_packing) type->interface_packing;
       const glsl_type *new_ifc_type =
          glsl_type::get_interface_instance(fields, num_fields,
-                                           packing, type->name);
+                                           packing, type->interface_binding, type->name);
       delete [] fields;
       return new_ifc_type;
    }
@@ -1303,7 +1303,7 @@ private:
       glsl_interface_packing packing =
          (glsl_interface_packing) ifc_type->interface_packing;
       const glsl_type *new_ifc_type =
-         glsl_type::get_interface_instance(fields, num_fields, packing,
+         glsl_type::get_interface_instance(fields, num_fields, packing, ifc_type->interface_binding,
                                            ifc_type->name);
       delete [] fields;
       for (unsigned i = 0; i < num_fields; i++) {
