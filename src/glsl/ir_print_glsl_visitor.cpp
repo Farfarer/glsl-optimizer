@@ -531,6 +531,10 @@ void ir_print_glsl_visitor::visit(ir_variable *ir)
 		const int binding_base = (this->state->stage == MESA_SHADER_VERTEX ? (int)VERT_ATTRIB_GENERIC0 : (int)FRAG_RESULT_DATA0);
 		const int location = ir->data.location - binding_base;
 		buffer.asprintf_append ("layout(location=%d) ", location);
+	} 
+	else if (((this->state->language_version >= 300) || this->state->ARB_shading_language_420pack_enable) && ir->data.explicit_binding && ir->type->is_sampler())
+	{
+		buffer.asprintf_append("layout(binding=%d) ", ir->data.binding);
 	}
 	
 	int decormode = this->mode;
