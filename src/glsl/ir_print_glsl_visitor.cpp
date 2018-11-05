@@ -341,12 +341,32 @@ _mesa_print_ir_glsl(exec_list *instructions,
 	if (ls->loop_found)
 		set_loop_controls(instructions, ls);
 
+	// print out structs first
+	foreach_in_list(ir_instruction, ir, instructions) {
+		if (ir->ir_type != ir_type_typedecl) {
+			continue;
+		}
+
+		ir_print_glsl_visitor v(body, &gtracker, mode, state->es_shader, state);
+		v.loopstate = ls;
+
+		ir->accept(&v);
+		if (ir->ir_type != ir_type_function && !v.skipped_this_ir)
+			body.asprintf_append(";\n");
+
+		uses_texlod_impl |= v.uses_texlod_impl;
+		uses_texlodproj_impl |= v.uses_texlodproj_impl;
+	}
+
 	if (state->language_version >= 150) {
 		do_print_glsl_uniform_blocks(instructions, gtracker, ls, body, state, mode);
 	}
 
 	foreach_in_list(ir_instruction, ir, instructions)
 	{
+		if (ir->ir_type == ir_type_typedecl) {
+			continue;
+		}
 		if (ir->ir_type == ir_type_variable) {
 			ir_variable *var = static_cast<ir_variable*>(ir);
 			if ((strstr(var->name, "gl_") == var->name)
