@@ -258,7 +258,7 @@ void do_print_glsl_uniform_blocks(exec_list* instructions,
 			body.asprintf_append("layout(%s) uniform %s {\n", layout_packing[block->type->interface_packing], block->type->name);
 		}
 		
-		foreach_in_list(ir_instruction, ir, instructions) {
+		foreach_in_list_reverse(ir_instruction, ir, instructions) {
 			if (ir->ir_type == ir_type_variable) {
 				ir_variable* var = static_cast<ir_variable*>(ir);
 				if (var->get_interface_type() == block->type) {
