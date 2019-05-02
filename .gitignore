@@ -76,3 +76,5 @@ glsl_compiler
 
 build
 metalTemp.metal
+
+build_folder/
