@@ -5635,6 +5635,7 @@ ast_interface_block::hir(exec_list *instructions,
       glsl_type::get_interface_instance(fields,
                                         num_variables,
                                         packing,
+										this->layout.flags.q.explicit_binding ? (this->layout.binding + 1) : 0,
                                         this->block_name);
 
    if (!state->symbols->add_interface(block_type->name, block_type, var_mode)) {

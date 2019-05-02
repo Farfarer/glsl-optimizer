@@ -211,6 +211,74 @@ static void print_texlod_workarounds(int usage_bitfield, int usage_proj_bitfield
 	}
 }
 
+void do_print_glsl_uniform_blocks(exec_list* instructions, 
+								  global_print_tracker& gtracker, 
+								  loop_state* ls, 
+								  string_buffer& body,
+								  struct _mesa_glsl_parse_state *state,
+								  PrintGlslMode mode) {
+
+	struct uniform_block : public exec_node {
+		uniform_block(const glsl_type* type_) : type(type_) {
+		}
+		const glsl_type* type;
+	};
+
+	exec_list uniform_blocks;
+	uniform_blocks.make_empty();
+
+	auto mem_ctx = ralloc_context(NULL);
+
+	foreach_in_list(ir_instruction, ir, instructions) {
+		if (ir->ir_type == ir_type_variable) {
+			ir_variable* var = static_cast<ir_variable*>(ir);
+			if (var->is_in_uniform_block()) {
+				uniform_block* block = nullptr;
+				foreach_in_list(uniform_block, entry, &uniform_blocks) {
+					if (entry->type == var->get_interface_type()) {
+						block = entry;
+						break;
+					}
+				}
+				if (!block) {
+					block = new(mem_ctx) uniform_block(var->get_interface_type());
+					uniform_blocks.push_tail(block);
+				}
+			}
+		}
+	}
+
+	static const char* layout_packing[] = { "std140", "shared", "packed" };
+
+	foreach_in_list(uniform_block, block, &uniform_blocks) {
+		
+		if (block->type->interface_binding) {
+			body.asprintf_append("layout(%s, binding = %d) uniform %s {\n", layout_packing[block->type->interface_packing], block->type->interface_binding-1, block->type->name);
+		} else {
+			body.asprintf_append("layout(%s) uniform %s {\n", layout_packing[block->type->interface_packing], block->type->name);
+		}
+		
+		foreach_in_list_reverse(ir_instruction, ir, instructions) {
+			if (ir->ir_type == ir_type_variable) {
+				ir_variable* var = static_cast<ir_variable*>(ir);
+				if (var->get_interface_type() == block->type) {
+					body.asprintf_append("    ");
+					ir_print_glsl_visitor v(body, &gtracker, mode, state->es_shader, state);
+					v.loopstate = ls;
+
+					ir->accept(&v);
+					if (ir->ir_type != ir_type_function && !v.skipped_this_ir)
+						body.asprintf_append(";\n");
+				}
+			}
+		}
+
+		body.asprintf_append("};\n");
+	}
+
+	ralloc_free(mem_ctx);
+}
+
 
 char*
 _mesa_print_ir_glsl(exec_list *instructions,
@@ -233,6 +301,10 @@ _mesa_print_ir_glsl(exec_list *instructions,
 			str.asprintf_append ("#extension GL_ARB_shader_texture_lod : enable\n");
 		if (state->ARB_draw_instanced_enable)
 			str.asprintf_append ("#extension GL_ARB_draw_instanced : enable\n");
+		if (state->ARB_shading_language_420pack_enable)
+			str.asprintf_append ("#extension GL_ARB_shading_language_420pack : enable\n");
+		if (state->ARB_explicit_attrib_location_enable)
+			str.asprintf_append("#extension GL_ARB_explicit_attrib_location : enable\n");
 		if (state->EXT_gpu_shader4_enable)
 			str.asprintf_append ("#extension GL_EXT_gpu_shader4 : enable\n");
 		if (state->EXT_shader_texture_lod_enable)
@@ -269,13 +341,40 @@ _mesa_print_ir_glsl(exec_list *instructions,
 	if (ls->loop_found)
 		set_loop_controls(instructions, ls);
 
+	// print out structs first
+	foreach_in_list(ir_instruction, ir, instructions) {
+		if (ir->ir_type != ir_type_typedecl) {
+			continue;
+		}
+
+		ir_print_glsl_visitor v(body, &gtracker, mode, state->es_shader, state);
+		v.loopstate = ls;
+
+		ir->accept(&v);
+		if (ir->ir_type != ir_type_function && !v.skipped_this_ir)
+			body.asprintf_append(";\n");
+
+		uses_texlod_impl |= v.uses_texlod_impl;
+		uses_texlodproj_impl |= v.uses_texlodproj_impl;
+	}
+
+	if (state->language_version >= 150) {
+		do_print_glsl_uniform_blocks(instructions, gtracker, ls, body, state, mode);
+	}
+
 	foreach_in_list(ir_instruction, ir, instructions)
 	{
+		if (ir->ir_type == ir_type_typedecl) {
+			continue;
+		}
 		if (ir->ir_type == ir_type_variable) {
 			ir_variable *var = static_cast<ir_variable*>(ir);
 			if ((strstr(var->name, "gl_") == var->name)
 			  && !var->data.invariant)
 				continue;
+			if ((state->language_version >= 150) && var->is_in_uniform_block()) {
+				continue;
+			}
 		}
 
 		ir_print_glsl_visitor v (body, &gtracker, mode, state->es_shader, state);
@@ -447,11 +546,15 @@ void ir_print_glsl_visitor::visit(ir_variable *ir)
 	
 	const char *const interp[] = { "", "smooth ", "flat ", "noperspective " };
 	
-	if (this->state->language_version >= 300 && ir->data.explicit_location)
+	if (((this->state->language_version >= 300) || this->state->ARB_explicit_attrib_location_enable) && ir->data.explicit_location)
 	{
 		const int binding_base = (this->state->stage == MESA_SHADER_VERTEX ? (int)VERT_ATTRIB_GENERIC0 : (int)FRAG_RESULT_DATA0);
 		const int location = ir->data.location - binding_base;
 		buffer.asprintf_append ("layout(location=%d) ", location);
+	} 
+	else if (((this->state->language_version >= 300) || this->state->ARB_shading_language_420pack_enable) && ir->data.explicit_binding && ir->type->is_sampler())
+	{
+		buffer.asprintf_append("layout(binding=%d) ", ir->data.binding);
 	}
 	
 	int decormode = this->mode;
@@ -493,7 +596,7 @@ void ir_print_glsl_visitor::visit(ir_variable *ir)
 	}
 	
 	buffer.asprintf_append ("%s%s%s%s",
-							cent, inv, interp[ir->data.interpolation], mode[decormode][ir->data.mode]);
+							cent, inv, interp[ir->data.interpolation], mode[decormode][((this->state->language_version >= 150) &&  ir->is_in_uniform_block()) ? 0 : ir->data.mode]);
 	print_precision (ir, ir->type);
 	print_type(buffer, ir->type, false);
 	buffer.asprintf_append (" ");

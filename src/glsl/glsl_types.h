@@ -124,6 +124,7 @@ struct glsl_type {
 				* and \c GLSL_TYPE_UINT are valid.
 				*/
    unsigned interface_packing:2;
+   unsigned interface_binding : 8;
 
    /* Callers of this ralloc-based new need not call delete. It's
     * easier to just ralloc_free 'mem_ctx' (or any of its ancestors). */
@@ -265,6 +266,7 @@ struct glsl_type {
    static const glsl_type *get_interface_instance(const glsl_struct_field *fields,
 						  unsigned num_fields,
 						  enum glsl_interface_packing packing,
+						  unsigned binding,
 						  const char *block_name);
 
    /**
@@ -653,7 +655,7 @@ private:
 
    /** Constructor for interface types */
    glsl_type(const glsl_struct_field *fields, unsigned num_fields,
-	     enum glsl_interface_packing packing, const char *name);
+	     enum glsl_interface_packing packing, unsigned bindings, const char *name);
 
    /** Constructor for array types */
    glsl_type(const glsl_type *array, unsigned length);
